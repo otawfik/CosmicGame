@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cosmic Explorer - Standalone</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@300;500;700&display=swap');
+      
+      body {
+        font-family: 'Rajdhani', sans-serif;
+        background-color: #0f172a;
+        color: #e2e8f0;
+        overflow: hidden;
+      }
+      
+      .font-display { font-family: 'Orbitron', sans-serif; }
+
+      @keyframes orbit {
+        from { transform: rotate(0deg) translateX(var(--orbit-radius)) rotate(0deg); }
+        to   { transform: rotate(360deg) translateX(var(--orbit-radius)) rotate(-360deg); }
+      }
+      
+      .animate-orbit { animation: orbit var(--orbit-duration) linear infinite; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- MAIN APPLICATION SCRIPT -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef, useCallback } from "https://esm.sh/react@18.2.0";
+        import { createRoot } from "https://esm.sh/react-dom@18.2.0/client";
+        import { GoogleGenAI, Type } from "https://esm.sh/@google/genai";
+
+        // --- TYPES & ENUMS ---
+        const PlanetName = {
+          Mercury: 'Mercury',
+          Venus: 'Venus',
+          Earth: 'Earth',
+          Mars: 'Mars',
+          Jupiter: 'Jupiter',
+          Saturn: 'Saturn',
+          Uranus: 'Uranus',
+          Neptune: 'Neptune'
+        };
+
+        const GameState = {
+          MENU: 'MENU',
+          BRIEFING: 'BRIEFING',
+          PLAYING: 'PLAYING',
+          GAME_OVER: 'GAME_OVER',
+          VICTORY: 'VICTORY'
+        };
+
+        // --- GEMINI SERVICE ---
+        // Simple API Key Manager for Standalone version
+        const getApiKey = () => {
+            let key = localStorage.getItem('GEMINI_API_KEY');
+            if (!key) {
+                key = prompt("Please enter your Google Gemini API Key to play:");
+                if (key) localStorage.setItem('GEMINI_API_KEY', key);
+            }
+            return key;
+        };
+
+        const generateBriefing = async (planet) => {
+          const apiKey = getApiKey();
+          if (!apiKey) return { title: `${planet} Mission`, mission: "API Key required to generate mission details." };
+
+          try {
+            const ai = new GoogleGenAI({ apiKey });
+            const prompt = `Generate a short, intense sci-fi mission briefing for a mini-game set on ${planet}.
+            
+            The game context is:
+            - Mercury: Bullet-hell survival. Dodging solar flares erupting from the sun.
+            - Venus: Piloting a probe upward to escape acid clouds.
+            - Earth: Defending a space station from space debris using a rotating shield.
+            - Mars: Driving a rover in a dust storm with drift physics.
+            - Jupiter: Using gravity assists (orbits) to collect data from moons.
+            - Saturn: High-speed flight through the ring system dodging ice asteroids.
+            - Uranus: Piloting a harvester drone to catch falling gas samples while avoiding ice.
+            - Neptune: Fighting supersonic winds to catch diamond rain.
+
+            Return JSON with 'title' (short catchy name) and 'mission' (2 sentences).`;
+
+            const response = await ai.models.generateContent({
+              model: "gemini-2.5-flash",
+              contents: prompt,
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: { type: Type.STRING },
+                    mission: { type: Type.STRING }
+                  },
+                  required: ["title", "mission"]
+                }
+              }
+            });
+            
+            return JSON.parse(response.text);
+          } catch (error) {
+            console.error("Gemini Error:", error);
+            return { title: `${planet} Mission`, mission: "Communication uplink failed. Proceed with caution." };
+          }
+        };
+
+        const generateFact = async (planet, won) => {
+          const apiKey = getApiKey();
+          if (!apiKey) return "Mission ended.";
+
+          try {
+            const ai = new GoogleGenAI({ apiKey });
+            const prompt = `Generate a fascinating, single-sentence scientific fact about ${planet}. 
+            ${won ? "Start with a celebratory tone." : "Start with an encouraging tone for a failed mission."}
+            Focus on the specific physics used in the game (Gravity, Pressure, Wind, etc).`;
+
+            const response = await ai.models.generateContent({
+              model: "gemini-2.5-flash",
+              contents: prompt,
+            });
+            return response.text;
+          } catch (error) {
+            return `Mission complete. ${planet} is a fascinating world.`;
+          }
+        };
+
+        // --- COMPONENTS ---
+
+        // 1. Solar System
+        const SolarSystem = ({ planets, onSelectPlanet }) => {
+          return (
+            <div className="relative w-full h-full min-h-screen flex items-center justify-center overflow-hidden bg-slate-900 perspective-1000">
+              {/* Background Stars */}
+              <div className="absolute inset-0 z-0">
+                {[...Array(50)].map((_, i) => (
+                  <div key={i} className="absolute bg-white rounded-full opacity-60 animate-pulse"
+                    style={{
+                      left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%`,
+                      width: `${Math.random() * 3}px`, height: `${Math.random() * 3}px`,
+                      animationDelay: `${Math.random() * 5}s`
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Sun */}
+              <div className="absolute z-10 w-24 h-24 bg-yellow-400 rounded-full shadow-[0_0_60px_rgba(253,224,71,0.6)] animate-pulse flex items-center justify-center">
+                 <span className="text-yellow-900 font-bold opacity-0 hover:opacity-100 transition-opacity">Sun</span>
+              </div>
+
+              {/* Orbits & Planets */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                {planets.map((planet) => (
+                  <div key={planet.name} className="absolute rounded-full border border-slate-700/30"
+                    style={{
+                      width: `calc(${planet.orbitRadius} * 2)`, height: `calc(${planet.orbitRadius} * 2)`,
+                      animation: `orbit ${planet.orbitDuration} linear infinite`
+                    }}
+                  >
+                    {/* Planet Container (Counter-rotated inside CSS animation) */}
+                    <div className="absolute top-0 left-0 w-full h-full">
+                         {/* We handle the visual dot here */}
+                    </div>
+                    
+                    {/* The Click Target - We manually position it at the 'start' of the orbit for simplicity in this CSS-only orbit impl */}
+                     <div 
+                        className="absolute top-1/2 left-full -translate-x-1/2 -translate-y-1/2 pointer-events-auto cursor-pointer group hover:scale-125 transition-transform"
+                        onClick={() => onSelectPlanet(planet.name)}
+                      >
+                        <div className={`rounded-full shadow-lg ${planet.size} ${planet.color}`}></div>
+                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 whitespace-nowrap border border-slate-600 pointer-events-none">
+                          {planet.name}
+                        </div>
+                      </div>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="absolute bottom-8 left-0 w-full text-center z-20 pointer-events-none">
+                <h1 className="text-4xl md:text-6xl font-display text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-400 drop-shadow-lg">
+                  COSMIC EXPLORER
+                </h1>
+                <p className="text-slate-400 text-sm mt-2 font-display tracking-widest uppercase">Select a planet to begin mission</p>
+              </div>
+            </div>
+          );
+        };
+
+        // 2. Mini Game Engine
+        const MiniGame = ({ planet, onGameOver }) => {
+          const canvasRef = useRef(null);
+          const [score, setScore] = useState(0);
+          const [timeLeft, setTimeLeft] = useState(30);
+          
+          const gameState = useRef({
+            playing: true, score: 0, time: 0, lastTime: 0,
+            player: { x: 0, y: 0, vx: 0, vy: 0, angle: 0, fuel: 100, grounded: false, radius: 10 },
+            items: [], particles: [], environment: { offset: 0, gravityVector: 0, wind: 0, difficulty: 1 }
+          });
+
+          const handleInput = useCallback((type, x, y) => {
+            if (!gameState.current.playing) return;
+            const state = gameState.current;
+
+            switch (planet) {
+              case PlanetName.Mercury:
+                if (x !== undefined && y !== undefined) { state.player.x = x; state.player.y = y; }
+                break;
+              case PlanetName.Venus:
+                if (type === 'start') state.player.grounded = true;
+                if (type === 'end') state.player.grounded = false;
+                if (x !== undefined) state.player.x = x;
+                break;
+              case PlanetName.Earth:
+                if (x !== undefined && y !== undefined) {
+                   const cx = 200, cy = 250; 
+                   state.player.angle = Math.atan2(y - cy, x - cx);
+                }
+                break;
+              case PlanetName.Mars:
+                if (x !== undefined) state.player.angle = (x - 200) / 100;
+                break;
+              case PlanetName.Jupiter:
+                if (type === 'start') state.player.grounded = true;
+                if (type === 'end') state.player.grounded = false;
+                break;
+              case PlanetName.Saturn:
+                if (x !== undefined) state.player.x = x;
+                break;
+              case PlanetName.Uranus:
+                if (x !== undefined) state.player.x = x;
+                break;
+              case PlanetName.Neptune:
+                if (type === 'start') state.player.grounded = true;
+                if (type === 'end') state.player.grounded = false;
+                if (y !== undefined) state.player.y = y;
+                break;
+            }
+          }, [planet]);
+
+          useEffect(() => {
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            gameState.current = {
+              playing: true, score: 0, time: 30, lastTime: performance.now(),
+              player: { x: 0, y: 0, vx: 0, vy: 0, angle: 0, fuel: 100, grounded: false, radius: 10 },
+              items: [], particles: [], environment: { offset: 0, gravityVector: 0, wind: 0, difficulty: 1 }
+            };
+
+            const state = gameState.current;
+
+            // Init Logic
+            if (planet === PlanetName.Mercury) { state.player.x = 200; state.player.y = 250; state.time = 30; }
+            else if (planet === PlanetName.Venus) { state.player.x = 200; state.player.y = 400; state.time = 40; }
+            else if (planet === PlanetName.Earth) { state.player.angle = 0; state.time = 45; }
+            else if (planet === PlanetName.Mars) { state.player.x = 200; state.player.y = 200; state.time = 40; }
+            else if (planet === PlanetName.Jupiter) { state.player.radius = 100; state.player.angle = 0; state.time = 60; }
+            else if (planet === PlanetName.Saturn) { state.player.x = 200; state.player.y = 400; state.time = 40; }
+            else if (planet === PlanetName.Uranus) { state.player.x = 200; state.player.y = 450; state.time = 40; }
+            else if (planet === PlanetName.Neptune) { state.player.x = 50; state.player.y = 250; state.time = 40; }
+
+            let animationFrameId;
+
+            const loop = (timestamp) => {
+              if (!state.playing) return;
+              const dt = Math.min((timestamp - state.lastTime) / 1000, 0.1);
+              state.lastTime = timestamp;
+              
+              state.time -= dt;
+              setTimeLeft(Math.ceil(state.time));
+
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+              // --- GAME LOGIC (Condensed for Standalone) ---
+              // MERCURY
+              if (planet === PlanetName.Mercury) {
+                   const cx = 200, cy = 250;
+                   state.environment.difficulty += dt * 0.02;
+                   if (Math.random() < 0.08 * state.environment.difficulty) {
+                      const side = Math.floor(Math.random() * 4);
+                      let startX = 0, startY = 0;
+                      if (side === 0) { startX = Math.random() * 400; startY = -20; }
+                      if (side === 1) { startX = 420; startY = Math.random() * 500; }
+                      if (side === 2) { startX = Math.random() * 400; startY = 520; }
+                      if (side === 3) { startX = -20; startY = Math.random() * 500; }
+                      const targetX = Math.random() * 200 + 100;
+                      const targetY = Math.random() * 200 + 150;
+                      const angle = Math.atan2(targetY - startY, targetX - startX);
+                      const speed = 100 + Math.random() * 100;
+                      state.items.push({ x: startX, y: startY, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, size: 8 + Math.random()*8 });
+                   }
+                   state.items.forEach(item => {
+                      item.x += item.vx * dt; item.y += item.vy * dt;
+                      if (Math.hypot(item.x - state.player.x, item.y - state.player.y) < item.size + 8) { state.playing = false; onGameOver(false, state.score); }
+                   });
+                   state.score += 20 * dt;
+                   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 400); grad.addColorStop(0, '#fef08a'); grad.addColorStop(0.5, '#ef4444'); grad.addColorStop(1, '#7f1d1d');
+                   ctx.fillStyle = grad; ctx.fillRect(0,0,400,500);
+                   ctx.fillStyle = '#fff'; state.items.forEach(item => { ctx.beginPath(); ctx.arc(item.x, item.y, item.size, 0, Math.PI*2); ctx.fill(); });
+                   ctx.fillStyle = '#38bdf8'; ctx.beginPath(); ctx.arc(state.player.x, state.player.y, 8, 0, Math.PI*2); ctx.fill();
+              }
+              // VENUS
+              else if (planet === PlanetName.Venus) {
+                   state.player.vy += 200 * dt;
+                   if (state.player.grounded) { state.player.vy -= 700 * dt; state.particles.push({x: state.player.x, y: state.player.y+10, life:0.5}); }
+                   state.player.y += state.player.vy * dt;
+                   if (state.player.y > 500) { state.playing = false; onGameOver(false, state.score); }
+                   if (state.player.y < 0) state.player.y = 0;
+                   if (Math.random() < 0.05) state.items.push({ x: Math.random()<0.5?-20:420, y: Math.random()*400, vx: (Math.random()<0.5?1:-1)*150 });
+                   state.items.forEach(item => {
+                      item.x += item.vx * dt;
+                      if (Math.hypot(item.x - state.player.x, item.y - state.player.y) < 20) { state.playing = false; onGameOver(false, state.score); }
+                   });
+                   state.score += 5 * dt;
+                   ctx.fillStyle = 'rgba(250, 204, 21, 0.2)'; ctx.fillRect(0,0,400,500);
+                   ctx.fillStyle = '#fff'; state.particles.forEach(p => { p.life-=dt; if(p.life>0) ctx.fillRect(p.x, p.y, 2, 2); });
+                   ctx.fillStyle = '#fff'; ctx.fillRect(state.player.x-10, state.player.y-10, 20, 20);
+                   ctx.fillStyle = '#a16207'; state.items.forEach(i => { ctx.beginPath(); ctx.arc(i.x, i.y, 15, 0, Math.PI*2); ctx.fill(); });
+              }
+              // EARTH
+              else if (planet === PlanetName.Earth) {
+                  const cx = 200, cy = 250, r = 60;
+                  if (Math.random() < 0.03) { const a = Math.random()*6.28; state.items.push({x:cx+Math.cos(a)*300, y:cy+Math.sin(a)*300, vx:-Math.cos(a)*100, vy:-Math.sin(a)*100, type: Math.random()>0.7?'friend':'foe'}); }
+                  state.items.forEach(item => {
+                     item.x += item.vx * dt; item.y += item.vy * dt;
+                     const d = Math.hypot(item.x-cx, item.y-cy);
+                     if (d < r+10 && d > r-10) {
+                        let diff = Math.abs(Math.atan2(item.y-cy, item.x-cx) - state.player.angle);
+                        if (diff > Math.PI) diff = Math.PI*2 - diff;
+                        if (diff < 0.5) { 
+                            if(item.type==='friend') state.score-=50; else state.score+=10; 
+                            item.dead=true; 
+                        }
+                     }
+                     if (d < 20 && !item.dead) { if(item.type==='foe'){state.playing=false; onGameOver(false, state.score);} else {state.score+=50; item.dead=true;} }
+                  });
+                  state.items = state.items.filter(i=>!i.dead);
+                  ctx.fillStyle = '#3b82f6'; ctx.beginPath(); ctx.arc(cx, cy, 20, 0, Math.PI*2); ctx.fill();
+                  ctx.strokeStyle = '#60a5fa'; ctx.lineWidth=5; ctx.beginPath(); ctx.arc(cx, cy, r, state.player.angle-0.5, state.player.angle+0.5); ctx.stroke();
+                  state.items.forEach(i => { ctx.fillStyle = i.type==='friend'?'#4ade80':'#94a3b8'; ctx.beginPath(); ctx.arc(i.x, i.y, 5, 0, Math.PI*2); ctx.fill(); });
+              }
+              // MARS
+              else if (planet === PlanetName.Mars) {
+                  state.player.vx += (Math.cos(state.player.vy)*150 - state.player.vx)*2*dt;
+                  state.player.vy += (state.player.angle * 2) * dt;
+                  if (Math.random() < 0.05) { const a = state.player.vy+(Math.random()-0.5)*1.5; state.items.push({x: 200+Math.cos(a)*300, y:200+Math.sin(a)*300, type:Math.random()>0.2?'rock':'sample'}); }
+                  const fwdX = Math.cos(state.player.vy)*150*dt, fwdY = Math.sin(state.player.vy)*150*dt;
+                  state.items.forEach(item => {
+                     item.x -= fwdX; item.y -= fwdY;
+                     if (Math.hypot(item.x-200, item.y-200) < 20) {
+                        if (item.type==='rock') state.score-=20; else state.score+=50;
+                        item.dead=true;
+                     }
+                  });
+                  state.items = state.items.filter(i=>!i.dead && Math.hypot(i.x-200, i.y-200)<400);
+                  ctx.fillStyle='#7f1d1d'; ctx.fillRect(0,0,400,500);
+                  state.items.forEach(i => { ctx.fillStyle = i.type==='rock'?'#1c1917':'#3b82f6'; if(i.type==='rock') ctx.fillRect(i.x-10,i.y-10,20,20); else { ctx.beginPath(); ctx.arc(i.x,i.y,8,0,Math.PI*2); ctx.fill();} });
+                  ctx.save(); ctx.translate(200,200); ctx.rotate(state.player.vy); ctx.fillStyle='#e2e8f0'; ctx.fillRect(-15,-10,30,20); ctx.restore();
+              }
+              // JUPITER
+              else if (planet === PlanetName.Jupiter) {
+                  if (state.player.grounded) state.player.radius += 100*dt; else state.player.radius -= 50*dt;
+                  state.player.angle += (200/state.player.radius)*dt;
+                  if (state.player.radius < 40 || state.player.radius > 190) { state.playing = false; onGameOver(false, state.score); }
+                  if (Math.random() < 0.02) state.items.push({angle:Math.random()*6.28, dist: 50+Math.random()*130});
+                  const cx=200, cy=250;
+                  const px=cx+Math.cos(state.player.angle)*state.player.radius, py=cy+Math.sin(state.player.angle)*state.player.radius;
+                  state.items.forEach(i => {
+                      const ix=cx+Math.cos(i.angle)*i.dist, iy=cy+Math.sin(i.angle)*i.dist;
+                      if(Math.hypot(ix-px, iy-py)<20) { state.score+=50; i.dead=true; }
+                  });
+                  state.items = state.items.filter(i=>!i.dead);
+                  ctx.fillStyle='#000'; ctx.fillRect(0,0,400,500);
+                  ctx.fillStyle='#9a3412'; ctx.beginPath(); ctx.arc(cx, cy, 35, 0, Math.PI*2); ctx.fill();
+                  ctx.fillStyle='#38bdf8'; ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI*2); ctx.fill();
+                  ctx.fillStyle='#94a3b8'; state.items.forEach(i=>{ const ix=cx+Math.cos(i.angle)*i.dist, iy=cy+Math.sin(i.angle)*i.dist; ctx.beginPath(); ctx.arc(ix, iy, 6, 0, Math.PI*2); ctx.fill(); });
+              }
+              // SATURN
+              else if (planet === PlanetName.Saturn) {
+                   if (Math.random() < 0.1) state.items.push({x:Math.random()*400, y:-50, size:10+Math.random()*30});
+                   state.items.forEach(i => {
+                       i.y += 400*dt;
+                       if (Math.hypot(i.x-state.player.x, i.y-state.player.y) < i.size/2+10) { state.playing = false; onGameOver(false, state.score); }
+                   });
+                   state.items = state.items.filter(i=>i.y<550);
+                   state.score += 10*dt;
+                   ctx.fillStyle='#0c0a09'; ctx.fillRect(0,0,400,500);
+                   ctx.fillStyle='#a8a29e'; state.items.forEach(i=>{ ctx.beginPath(); ctx.arc(i.x, i.y, i.size/2, 0, Math.PI*2); ctx.fill(); });
+                   ctx.fillStyle='#d8b4fe'; ctx.beginPath(); ctx.moveTo(state.player.x, state.player.y-15); ctx.lineTo(state.player.x-10, state.player.y+10); ctx.lineTo(state.player.x+10, state.player.y+10); ctx.fill();
+              }
+              // URANUS
+              else if (planet === PlanetName.Uranus) {
+                   state.environment.difficulty += dt * 0.05;
+                   if (Math.random() < 0.05 * state.environment.difficulty) state.items.push({x: Math.random()*380+10, y:-20, vy:150+Math.random()*100, type: Math.random()>0.6?'bad':'good'});
+                   state.items.forEach(i => {
+                       i.y += i.vy * dt;
+                       if (i.y > state.player.y-15 && i.y < state.player.y+15 && i.x > state.player.x-25 && i.x < state.player.x+25) {
+                           if(i.type==='good') {state.score+=50; i.dead=true;} else {state.playing=false; onGameOver(false, state.score);}
+                       }
+                   });
+                   state.items = state.items.filter(i=>!i.dead && i.y<550);
+                   state.score+=5*dt;
+                   const grad=ctx.createLinearGradient(0,0,0,500); grad.addColorStop(0,'#0e7490'); grad.addColorStop(1,'#083344'); ctx.fillStyle=grad; ctx.fillRect(0,0,400,500);
+                   ctx.fillStyle='#cbd5e1'; ctx.fillRect(state.player.x-25, state.player.y-10, 50, 20);
+                   state.items.forEach(i=>{ ctx.fillStyle=i.type==='good'?'#22d3ee':'#fff'; if(i.type==='good'){ctx.beginPath();ctx.arc(i.x,i.y,8,0,Math.PI*2);ctx.fill();}else{ctx.beginPath();ctx.moveTo(i.x,i.y-10);ctx.lineTo(i.x+8,i.y+8);ctx.lineTo(i.x-8,i.y+8);ctx.fill();} });
+              }
+              // NEPTUNE
+              else if (planet === PlanetName.Neptune) {
+                   const thrust = state.player.grounded ? 350*dt : 0;
+                   state.player.x += (-150*dt + thrust);
+                   state.player.x = Math.max(20, Math.min(380, state.player.x));
+                   if (Math.random() < 0.05) state.items.push({x:420, y:Math.random()*450+25, vx:-250, type:'diamond'});
+                   state.items.forEach(i => {
+                       i.x += i.vx*dt;
+                       if (Math.hypot(i.x-state.player.x, i.y-state.player.y)<20) { state.score+=100; i.dead=true; }
+                   });
+                   state.items = state.items.filter(i=>!i.dead && i.x>-50);
+                   ctx.fillStyle='#0f172a'; ctx.fillRect(0,0,400,500);
+                   ctx.fillStyle='#e2e8f0'; ctx.beginPath(); ctx.arc(state.player.x, state.player.y, 10, 0, Math.PI*2); ctx.fill();
+                   ctx.fillStyle='#a5f3fc'; state.items.forEach(i=>{ ctx.fillRect(i.x-5, i.y-5, 10, 10); });
+              }
+
+              if (state.time <= 0 && state.playing) { state.playing = false; onGameOver(true, state.score); }
+              setScore(state.score);
+              animationFrameId = requestAnimationFrame(loop);
+            };
+
+            animationFrameId = requestAnimationFrame(loop);
+            return () => cancelAnimationFrame(animationFrameId);
+          }, [planet, onGameOver]);
+
+          const handleTouch = (e) => {
+             e.preventDefault();
+             if (!canvasRef.current) return;
+             const rect = canvasRef.current.getBoundingClientRect();
+             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+             const x = ((clientX - rect.left) / rect.width) * 400;
+             const y = ((clientY - rect.top) / rect.height) * 500;
+             let type = 'move';
+             if (e.type === 'mousedown' || e.type === 'touchstart') type = 'start';
+             if (e.type === 'mouseup' || e.type === 'touchend') type = 'end';
+             handleInput(type, x, y);
+          };
+
+          return (
+            <div className="relative flex flex-col items-center">
+              <div className="flex justify-between w-full max-w-md mb-2 text-cyan-400 font-display text-xl">
+                <span>TIME: {timeLeft}s</span><span>SCORE: {Math.floor(score)}</span>
+              </div>
+              <canvas ref={canvasRef} width={400} height={500}
+                className="bg-slate-900 rounded-xl border-2 border-slate-600 shadow-[0_0_20px_rgba(34,211,238,0.2)] touch-none cursor-crosshair w-full h-[60vh] object-contain"
+                onMouseDown={handleTouch} onMouseMove={handleTouch} onMouseUp={()=>handleInput('end')} onMouseLeave={()=>handleInput('end')}
+                onTouchStart={handleTouch} onTouchMove={handleTouch} onTouchEnd={()=>handleInput('end')}
+              />
+            </div>
+          );
+        };
+
+        // 3. App Component
+        const PLANETS = [
+          { name: PlanetName.Mercury, color: 'bg-stone-400', size: 'w-4 h-4', orbitRadius: '60px', orbitDuration: '25s', description: 'The swift planet.', gameTitle: 'Solar Flare Survival', gameInstruction: 'Dodge the incoming solar flares.' },
+          { name: PlanetName.Venus, color: 'bg-yellow-600', size: 'w-6 h-6', orbitRadius: '90px', orbitDuration: '40s', description: 'The hot planet.', gameTitle: 'Acid Ascension', gameInstruction: 'Thrust up to escape. Dodge acid.' },
+          { name: PlanetName.Earth, color: 'bg-blue-500', size: 'w-7 h-7', orbitRadius: '125px', orbitDuration: '60s', description: 'Our home.', gameTitle: 'Orbital Defense', gameInstruction: 'Rotate shield to block debris.' },
+          { name: PlanetName.Mars, color: 'bg-red-500', size: 'w-5 h-5', orbitRadius: '160px', orbitDuration: '80s', description: 'The red planet.', gameTitle: 'Red Rover Drift', gameInstruction: 'Steer the rover to collect samples.' },
+          { name: PlanetName.Jupiter, color: 'bg-orange-300', size: 'w-16 h-16', orbitRadius: '220px', orbitDuration: '120s', description: 'The giant.', gameTitle: 'Gravity Well', gameInstruction: 'Hold to thrust outward. Release to fall.' },
+          { name: PlanetName.Saturn, color: 'bg-yellow-200', size: 'w-14 h-14', orbitRadius: '290px', orbitDuration: '160s', description: 'The ringed planet.', gameTitle: 'Ring Racer', gameInstruction: 'Weave through asteroid gaps.' },
+          { name: PlanetName.Uranus, color: 'bg-cyan-300', size: 'w-10 h-10', orbitRadius: '350px', orbitDuration: '200s', description: 'The tilted planet.', gameTitle: 'Atmosphere Harvester', gameInstruction: 'Catch gas. Avoid ice.' },
+          { name: PlanetName.Neptune, color: 'bg-blue-700', size: 'w-10 h-10', orbitRadius: '410px', orbitDuration: '260s', description: 'The windy planet.', gameTitle: 'Diamond Rain', gameInstruction: 'Fight the wind. Catch diamonds.' },
+        ];
+
+        const App = () => {
+          const [gameState, setGameState] = useState(GameState.MENU);
+          const [selectedPlanet, setSelectedPlanet] = useState(null);
+          const [briefing, setBriefing] = useState(null);
+          const [fact, setFact] = useState("");
+          const [score, setScore] = useState(0);
+          const [isLoading, setIsLoading] = useState(false);
+
+          const handleSelectPlanet = async (planet) => {
+            setSelectedPlanet(planet);
+            setGameState(GameState.BRIEFING);
+            setIsLoading(true);
+            const content = await generateBriefing(planet);
+            setBriefing(content);
+            setIsLoading(false);
+          };
+
+          const handleGameOver = async (won, finalScore) => {
+            setGameState(won ? GameState.VICTORY : GameState.GAME_OVER);
+            setScore(finalScore);
+            setIsLoading(true);
+            const generatedFact = await generateFact(selectedPlanet, won);
+            setFact(generatedFact);
+            setIsLoading(false);
+          };
+
+          if (gameState === GameState.MENU) {
+            return <SolarSystem planets={PLANETS} onSelectPlanet={handleSelectPlanet} />;
+          }
+
+          if (gameState === GameState.BRIEFING) {
+            return (
+              <div className="w-full h-screen bg-slate-900 flex items-center justify-center p-6 text-white">
+                <div className="max-w-2xl w-full bg-slate-800 border border-slate-600 rounded-lg p-8 shadow-2xl relative">
+                   {isLoading ? <div className="text-center animate-pulse">Establishing uplink...</div> : 
+                   <>
+                     <h2 className="text-3xl font-display text-cyan-400 mb-2 uppercase">{briefing?.title}</h2>
+                     <p className="mb-8 font-mono text-lg text-green-400">{">"} {briefing?.mission}</p>
+                     <button onClick={()=>setGameState(GameState.PLAYING)} className="bg-cyan-600 hover:bg-cyan-500 text-white px-8 py-3 rounded font-display uppercase w-full">Engage Thrusters</button>
+                     <button onClick={()=>setGameState(GameState.MENU)} className="mt-4 text-slate-500 hover:text-white w-full">Abort</button>
+                   </>}
+                </div>
+              </div>
+            );
+          }
+
+          if (gameState === GameState.PLAYING) {
+             return (
+               <div className="w-full h-screen bg-slate-900 flex flex-col items-center">
+                 <div className="w-full p-4 bg-slate-800 border-b border-slate-700 flex justify-between">
+                    <span className="text-white font-display">{selectedPlanet}</span>
+                    <button onClick={()=>setGameState(GameState.MENU)} className="text-red-400">ABORT</button>
+                 </div>
+                 <div className="flex-1 w-full flex items-center justify-center bg-black">
+                    <MiniGame planet={selectedPlanet} onGameOver={handleGameOver} />
+                 </div>
+               </div>
+             )
+          }
+
+          if (gameState === GameState.VICTORY || gameState === GameState.GAME_OVER) {
+             return (
+               <div className="w-full h-screen bg-slate-900 flex items-center justify-center p-6 text-white">
+                 <div className="max-w-2xl w-full bg-slate-800 border border-slate-600 rounded-lg p-8 text-center">
+                    {isLoading ? <div className="animate-pulse">Analyzing...</div> : <>
+                        <h2 className={`text-4xl font-display mb-4 ${gameState === GameState.VICTORY ? 'text-green-400' : 'text-red-400'}`}>
+                           {gameState === GameState.VICTORY ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED'}
+                        </h2>
+                        <div className="text-2xl font-bold mb-6">Score: {Math.floor(score)}</div>
+                        <p className="text-slate-300 italic mb-8">"{fact}"</p>
+                        <button onClick={()=>setGameState(GameState.MENU)} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded font-display uppercase">Return to Star Map</button>
+                    </>}
+                 </div>
+               </div>
+             )
+          }
+          return null;
+        };
+
+        const root = createRoot(document.getElementById("root"));
+        root.render(<App />);
+    </script>
+</body>
+</html>
