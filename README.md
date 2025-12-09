@@ -1,7 +1,7 @@
 
 # 🪐 Cosmic Explorer
 
-### [🚀 CLICK HERE TO PLAY THE GAME](https://<YOUR-USERNAME>.github.io/<YOUR-REPO-NAME>/)
+### [🚀 CLICK HERE TO PLAY THE GAME](https://<otawfik>.github.io/<CosmicGame>/)
 
 **Cosmic Explorer** is an interactive educational arcade game where you explore the solar system. Click on a planet to launch a unique mini-game based on that planet's actual scientific conditions (gravity, atmosphere, wind speed, etc.).
 
