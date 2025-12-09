@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cosmic Explorer - Standalone</title>
+    <title>Cosmic Explorer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
@@ -33,7 +33,6 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef, useCallback } from "https://esm.sh/react@18.2.0";
         import { createRoot } from "https://esm.sh/react-dom@18.2.0/client";
-        import { GoogleGenAI, Type } from "https://esm.sh/@google/genai";
 
         // --- TYPES & ENUMS ---
         const PlanetName = {
@@ -55,78 +54,40 @@
           VICTORY: 'VICTORY'
         };
 
-        // --- GEMINI SERVICE ---
-        // Simple API Key Manager for Standalone version
-        const getApiKey = () => {
-            let key = localStorage.getItem('GEMINI_API_KEY');
-            if (!key) {
-                key = prompt("Please enter your Google Gemini API Key to play:");
-                if (key) localStorage.setItem('GEMINI_API_KEY', key);
-            }
-            return key;
+        // --- STATIC CONTENT DATABASE (NO AI REQUIRED) ---
+        const OFFLINE_BRIEFINGS = {
+          [PlanetName.Mercury]: { title: "OPERATION: SUN DIVER", mission: "Solar flare activity is critical. Navigate the thermal shields through the coronal mass ejections." },
+          [PlanetName.Venus]: { title: "PROJECT: ACID ASCENT", mission: "Atmospheric pressure is crushing the hull. Engage emergency thrusters to escape the sulfuric acid clouds." },
+          [PlanetName.Earth]: { title: "DEFENSE GRID: KESSLER", mission: "Orbital debris cascade imminent. Rotate the station shields to deflect space junk while allowing supply ships to dock." },
+          [PlanetName.Mars]: { title: "MISSION: RED STORM", mission: "Visibility is zero. Navigate the rover through the dust storm to locate water ice samples. Watch your traction." },
+          [PlanetName.Jupiter]: { title: "MANEUVER: GRAVITY WELL", mission: " entering Jovian orbit. Use gravity assists to slingshot between moons. Do not fall into the gas giant." },
+          [PlanetName.Saturn]: { title: "COURSE: CASSINI RUN", mission: "High-velocity trajectory calculated through the B-Ring. Dodge the ice asteroids at all costs." },
+          [PlanetName.Uranus]: { title: "PROTOCOL: ICE HARVEST", mission: "Atmospheric entry detected. Pilot the drone to harvest methane gas samples. Avoid falling ice shards." },
+          [PlanetName.Neptune]: { title: "OBJECTIVE: DIAMOND RAIN", mission: "Wind speeds exceeding Mach 1. Hold position against the storm and collect the carbon crystals forming in the mantle." }
         };
 
+        const OFFLINE_FACTS = {
+          [PlanetName.Mercury]: { win: "Success! Mercury is the fastest planet, orbiting the Sun every 88 Earth days.", lose: "Hull melted. Mercury experiences the most extreme temperature fluctuations in the solar system." },
+          [PlanetName.Venus]: { win: "Orbit achieved! Venus spins backwards compared to other planets.", lose: "Crushed. The atmospheric pressure on Venus is 92 times greater than Earth's." },
+          [PlanetName.Earth]: { win: "Station secure. Earth is the only planet known to harbor life.", lose: "Impact detected. Over 27,000 pieces of orbital debris are currently tracked around Earth." },
+          [PlanetName.Mars]: { win: "Samples secured. Mars is home to Olympus Mons, the tallest volcano in the solar system.", lose: "Rover stuck. Global dust storms on Mars can last for weeks and cover the entire planet." },
+          [PlanetName.Jupiter]: { win: "Orbit stable. Jupiter's Great Red Spot is a storm that has raged for over 300 years.", lose: "Pulled in. Jupiter has more than double the mass of all other planets combined." },
+          [PlanetName.Saturn]: { win: "Navigation complete. Saturn's rings are made mostly of ice particles ranging from dust to mountains.", lose: "Collision. Saturn is the only planet that is less dense than water." },
+          [PlanetName.Uranus]: { win: "Payload full. Uranus rotates on its side, rolling like a ball around the Sun.", lose: "Drone lost. Uranus has the coldest atmosphere in the solar system at -224°C." },
+          [PlanetName.Neptune]: { win: "Diamonds collected. Neptune has the strongest winds in the solar system, reaching 1,200 mph.", lose: "Blown away. Neptune was the first planet located through mathematical calculations." }
+        };
+
+        // --- MOCK SERVICES ---
         const generateBriefing = async (planet) => {
-          const apiKey = getApiKey();
-          if (!apiKey) return { title: `${planet} Mission`, mission: "API Key required to generate mission details." };
-
-          try {
-            const ai = new GoogleGenAI({ apiKey });
-            const prompt = `Generate a short, intense sci-fi mission briefing for a mini-game set on ${planet}.
-            
-            The game context is:
-            - Mercury: Bullet-hell survival. Dodging solar flares erupting from the sun.
-            - Venus: Piloting a probe upward to escape acid clouds.
-            - Earth: Defending a space station from space debris using a rotating shield.
-            - Mars: Driving a rover in a dust storm with drift physics.
-            - Jupiter: Using gravity assists (orbits) to collect data from moons.
-            - Saturn: High-speed flight through the ring system dodging ice asteroids.
-            - Uranus: Piloting a harvester drone to catch falling gas samples while avoiding ice.
-            - Neptune: Fighting supersonic winds to catch diamond rain.
-
-            Return JSON with 'title' (short catchy name) and 'mission' (2 sentences).`;
-
-            const response = await ai.models.generateContent({
-              model: "gemini-2.5-flash",
-              contents: prompt,
-              config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING },
-                    mission: { type: Type.STRING }
-                  },
-                  required: ["title", "mission"]
-                }
-              }
-            });
-            
-            return JSON.parse(response.text);
-          } catch (error) {
-            console.error("Gemini Error:", error);
-            return { title: `${planet} Mission`, mission: "Communication uplink failed. Proceed with caution." };
-          }
+          // Simulate a short network delay for realism
+          await new Promise(r => setTimeout(r, 800)); 
+          return OFFLINE_BRIEFINGS[planet] || { title: "UNKNOWN MISSION", mission: "Proceed with caution." };
         };
 
         const generateFact = async (planet, won) => {
-          const apiKey = getApiKey();
-          if (!apiKey) return "Mission ended.";
-
-          try {
-            const ai = new GoogleGenAI({ apiKey });
-            const prompt = `Generate a fascinating, single-sentence scientific fact about ${planet}. 
-            ${won ? "Start with a celebratory tone." : "Start with an encouraging tone for a failed mission."}
-            Focus on the specific physics used in the game (Gravity, Pressure, Wind, etc).`;
-
-            const response = await ai.models.generateContent({
-              model: "gemini-2.5-flash",
-              contents: prompt,
-            });
-            return response.text;
-          } catch (error) {
-            return `Mission complete. ${planet} is a fascinating world.`;
-          }
+          await new Promise(r => setTimeout(r, 600));
+          const data = OFFLINE_FACTS[planet];
+          return won ? data.win : data.lose;
         };
 
         // --- COMPONENTS ---
@@ -162,12 +123,6 @@
                       animation: `orbit ${planet.orbitDuration} linear infinite`
                     }}
                   >
-                    {/* Planet Container (Counter-rotated inside CSS animation) */}
-                    <div className="absolute top-0 left-0 w-full h-full">
-                         {/* We handle the visual dot here */}
-                    </div>
-                    
-                    {/* The Click Target - We manually position it at the 'start' of the orbit for simplicity in this CSS-only orbit impl */}
                      <div 
                         className="absolute top-1/2 left-full -translate-x-1/2 -translate-y-1/2 pointer-events-auto cursor-pointer group hover:scale-125 transition-transform"
                         onClick={() => onSelectPlanet(planet.name)}
@@ -555,12 +510,6 @@
           }
           return null;
         };
-
-        const root = createRoot(document.getElementById("root"));
-        root.render(<App />);
-    </script>
-</body>
-</html>
 
         const root = createRoot(document.getElementById("root"));
         root.render(<App />);
