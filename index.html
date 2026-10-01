@@ -29,6 +29,34 @@
 <body>
     <div id="root"></div>
 
+    <!-- LINEAR ALGEBRA CORE
+         The game world is the vector space R^2. Every position, velocity and
+         direction is a vector in R^2, and every rotation is the 2x2 matrix
+             R(th) = | cos th  -sin th |
+                     | sin th   cos th |
+         applied with ordinary matrix-vector multiplication. -->
+    <script>
+    const LA = (() => {
+      const vec = (x, y) => ({ x, y });                       // vector in R^2
+      const add = (a, b) => vec(a.x + b.x, a.y + b.y);         // vector addition
+      const sub = (a, b) => vec(a.x - b.x, a.y - b.y);
+      const scale = (s, v) => vec(s * v.x, s * v.y);           // scalar multiplication
+      const dot = (a, b) => a.x * b.x + a.y * b.y;             // dot product
+      const norm = (v) => Math.hypot(v.x, v.y);                // Euclidean norm
+      const normalize = (v) => { const n = norm(v) || 1; return scale(1 / n, v); };
+      const angleOf = (v) => Math.atan2(v.y, v.x);             // angle of a vector
+      // Rotation matrix R(th). Stored as (c, s) since R(th) = [[c,-s],[s,c]].
+      const rot = (th) => ({ c: Math.cos(th), s: Math.sin(th) });
+      // Matrix-vector product: R(th) * v
+      const applyRot = (R, v) => vec(R.c * v.x - R.s * v.y, R.s * v.x + R.c * v.y);
+      // Matrix-matrix product of rotations: R(a) * R(b) = R(a+b)
+      const composeRot = (A, B) => ({ c: A.c * B.c - A.s * B.s, s: A.s * B.c + A.c * B.s });
+      // Unit direction vector at angle th: R(th) applied to basis vector e_x
+      const dir = (th) => applyRot(rot(th), vec(1, 0));
+      return { vec, add, sub, scale, dot, norm, normalize, angleOf, rot, applyRot, composeRot, dir };
+    })();
+    </script>
+
     <!-- MAIN APPLICATION SCRIPT -->
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef, useCallback } from "https://esm.sh/react@18.2.0";
@@ -173,8 +201,8 @@
                 break;
               case PlanetName.Earth:
                 if (x !== undefined && y !== undefined) {
-                   const cx = 200, cy = 250; 
-                   state.player.angle = Math.atan2(y - cy, x - cx);
+                   const cx = 200, cy = 250;
+                   state.player.angle = LA.angleOf(LA.vec(x - cx, y - cy));
                 }
                 break;
               case PlanetName.Mars:
@@ -250,10 +278,14 @@
                       const targetY = Math.random() * 200 + 150;
                       const angle = Math.atan2(targetY - startY, targetX - startX);
                       const speed = 100 + Math.random() * 100;
-                      state.items.push({ x: startX, y: startY, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, size: 8 + Math.random()*8 });
+                      // velocity = R(angle) * (speed, 0): rotate the speed vector onto the firing line
+                      const vel = LA.applyRot(LA.rot(angle), LA.vec(speed, 0));
+                      state.items.push({ x: startX, y: startY, vx: vel.x, vy: vel.y, size: 8 + Math.random()*8 });
                    }
                    state.items.forEach(item => {
-                      item.x += item.vx * dt; item.y += item.vy * dt;
+                      // p += v * dt  (vector addition + scalar multiplication in R^2)
+                      const step = LA.scale(dt, LA.vec(item.vx, item.vy));
+                      item.x += step.x; item.y += step.y;
                       if (Math.hypot(item.x - state.player.x, item.y - state.player.y) < item.size + 8) { state.playing = false; onGameOver(false, state.score); }
                    });
                    state.score += 20 * dt;
@@ -283,16 +315,27 @@
               // EARTH
               else if (planet === PlanetName.Earth) {
                   const cx = 200, cy = 250, r = 60;
-                  if (Math.random() < 0.03) { const a = Math.random()*6.28; state.items.push({x:cx+Math.cos(a)*300, y:cy+Math.sin(a)*300, vx:-Math.cos(a)*100, vy:-Math.sin(a)*100, type: Math.random()>0.7?'friend':'foe'}); }
+                  if (Math.random() < 0.03) {
+                     const a = Math.random()*6.28;
+                     const R = LA.rot(a);
+                     // spawn point = center + R(a) * (300, 0); velocity = R(a) * (-100, 0) (inward)
+                     const pos = LA.applyRot(R, LA.vec(300, 0));
+                     const vel = LA.applyRot(R, LA.vec(-100, 0));
+                     state.items.push({x: cx + pos.x, y: cy + pos.y, vx: vel.x, vy: vel.y, type: Math.random()>0.7?'friend':'foe'});
+                  }
+                  // shield direction s = R(angle) * e_x ; blocked iff angle(s, debris) < 0.5 rad,
+                  // i.e. s . d > cos(0.5) for the unit direction d of the debris (dot product test)
+                  const shieldDir = LA.dir(state.player.angle);
+                  const SHIELD_COS = Math.cos(0.5);
                   state.items.forEach(item => {
-                     item.x += item.vx * dt; item.y += item.vy * dt;
+                     const step = LA.scale(dt, LA.vec(item.vx, item.vy));
+                     item.x += step.x; item.y += step.y;
                      const d = Math.hypot(item.x-cx, item.y-cy);
                      if (d < r+10 && d > r-10) {
-                        let diff = Math.abs(Math.atan2(item.y-cy, item.x-cx) - state.player.angle);
-                        if (diff > Math.PI) diff = Math.PI*2 - diff;
-                        if (diff < 0.5) { 
-                            if(item.type==='friend') state.score-=50; else state.score+=10; 
-                            item.dead=true; 
+                        const debrisDir = LA.normalize(LA.vec(item.x - cx, item.y - cy));
+                        if (LA.dot(shieldDir, debrisDir) > SHIELD_COS) {
+                            if(item.type==='friend') state.score-=50; else state.score+=10;
+                            item.dead=true;
                         }
                      }
                      if (d < 20 && !item.dead) { if(item.type==='foe'){state.playing=false; onGameOver(false, state.score);} else {state.score+=50; item.dead=true;} }
@@ -304,10 +347,21 @@
               }
               // MARS
               else if (planet === PlanetName.Mars) {
-                  state.player.vx += (Math.cos(state.player.vy)*150 - state.player.vx)*2*dt;
-                  state.player.vy += (state.player.angle * 2) * dt;
-                  if (Math.random() < 0.05) { const a = state.player.vy+(Math.random()-0.5)*1.5; state.items.push({x: 200+Math.cos(a)*300, y:200+Math.sin(a)*300, type:Math.random()>0.2?'rock':'sample'}); }
-                  const fwdX = Math.cos(state.player.vy)*150*dt, fwdY = Math.sin(state.player.vy)*150*dt;
+                  // rover forward vector = R(heading) * (150, 0): the rotation matrix applied to e_x
+                  const heading = LA.applyRot(LA.rot(state.player.vy), LA.vec(150, 0));
+                  state.player.vx += (heading.x - state.player.vx)*2*dt;
+                  // steering as matrix composition: R_new = R(turn*dt) * R(heading), then read the angle back
+                  const turn = LA.composeRot(LA.rot(state.player.angle * 2 * dt), LA.rot(state.player.vy));
+                  state.player.vy = Math.atan2(turn.s, turn.c);
+                  if (Math.random() < 0.05) {
+                     const a = state.player.vy+(Math.random()-0.5)*1.5;
+                     // spawn ahead of the rover: R(a) * (300, 0)
+                     const sp = LA.applyRot(LA.rot(a), LA.vec(300, 0));
+                     state.items.push({x: 200 + sp.x, y: 200 + sp.y, type:Math.random()>0.2?'rock':'sample'});
+                  }
+                  // world drifts past the rover along the (new) forward vector
+                  const fwd = LA.scale(dt, LA.applyRot(LA.rot(state.player.vy), LA.vec(150, 0)));
+                  const fwdX = fwd.x, fwdY = fwd.y;
                   state.items.forEach(item => {
                      item.x -= fwdX; item.y -= fwdY;
                      if (Math.hypot(item.x-200, item.y-200) < 20) {
@@ -318,6 +372,7 @@
                   state.items = state.items.filter(i=>!i.dead && Math.hypot(i.x-200, i.y-200)<400);
                   ctx.fillStyle='#7f1d1d'; ctx.fillRect(0,0,400,500);
                   state.items.forEach(i => { ctx.fillStyle = i.type==='rock'?'#1c1917':'#3b82f6'; if(i.type==='rock') ctx.fillRect(i.x-10,i.y-10,20,20); else { ctx.beginPath(); ctx.arc(i.x,i.y,8,0,Math.PI*2); ctx.fill();} });
+                  // ctx.rotate applies the rotation matrix R(vy) to the canvas transform
                   ctx.save(); ctx.translate(200,200); ctx.rotate(state.player.vy); ctx.fillStyle='#e2e8f0'; ctx.fillRect(-15,-10,30,20); ctx.restore();
               }
               // JUPITER
@@ -327,16 +382,20 @@
                   if (state.player.radius < 40 || state.player.radius > 190) { state.playing = false; onGameOver(false, state.score); }
                   if (Math.random() < 0.02) state.items.push({angle:Math.random()*6.28, dist: 50+Math.random()*130});
                   const cx=200, cy=250;
-                  const px=cx+Math.cos(state.player.angle)*state.player.radius, py=cy+Math.sin(state.player.angle)*state.player.radius;
+                  // polar -> cartesian via rotation matrix: p = center + R(angle) * (radius, 0)
+                  const polar = (ang, dist) => LA.add(LA.vec(cx, cy), LA.applyRot(LA.rot(ang), LA.vec(dist, 0)));
+                  const pp = polar(state.player.angle, state.player.radius);
+                  const px = pp.x, py = pp.y;
                   state.items.forEach(i => {
-                      const ix=cx+Math.cos(i.angle)*i.dist, iy=cy+Math.sin(i.angle)*i.dist;
+                      const ip = polar(i.angle, i.dist);
+                      const ix = ip.x, iy = ip.y;
                       if(Math.hypot(ix-px, iy-py)<20) { state.score+=50; i.dead=true; }
                   });
                   state.items = state.items.filter(i=>!i.dead);
                   ctx.fillStyle='#000'; ctx.fillRect(0,0,400,500);
                   ctx.fillStyle='#9a3412'; ctx.beginPath(); ctx.arc(cx, cy, 35, 0, Math.PI*2); ctx.fill();
                   ctx.fillStyle='#38bdf8'; ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI*2); ctx.fill();
-                  ctx.fillStyle='#94a3b8'; state.items.forEach(i=>{ const ix=cx+Math.cos(i.angle)*i.dist, iy=cy+Math.sin(i.angle)*i.dist; ctx.beginPath(); ctx.arc(ix, iy, 6, 0, Math.PI*2); ctx.fill(); });
+                  ctx.fillStyle='#94a3b8'; state.items.forEach(i=>{ const ip=polar(i.angle, i.dist); ctx.beginPath(); ctx.arc(ip.x, ip.y, 6, 0, Math.PI*2); ctx.fill(); });
               }
               // SATURN
               else if (planet === PlanetName.Saturn) {
