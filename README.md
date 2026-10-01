@@ -20,6 +20,25 @@
 | **Uranus** | Atmosphere Harvester | Catch & Avoid |
 | **Neptune** | Diamond Rain | Wind resistance survival |
 
+## 🧮 Built on Linear Algebra
+
+The game world is the vector space R². Every position, velocity, and direction is a vector in R², and every rotation is an explicit 2x2 rotation matrix
+
+    R(θ) = | cos θ  −sin θ |
+           | sin θ   cos θ |
+
+All of it lives in the `LA` linear algebra core at the top of `index.html`: vector construction, addition, subtraction, scalar multiplication, dot products, Euclidean norms, normalization, and rotation matrices with both matrix-vector and matrix-matrix products.
+
+Where it shows up in the games:
+
+- **Mercury**: projectile velocity = R(aim)·(speed, 0), the rotation matrix applied to the x basis vector. Movement is the vector update p += v·dt via scalar multiplication.
+- **Earth**: the pointer direction becomes a vector, and debris spawn positions and inward velocities are R(a)·(300, 0) and R(a)·(−100, 0). The shield blocks debris when the dot product of the two unit direction vectors exceeds cos(0.5), which is the old angle comparison rewritten as pure linear algebra.
+- **Mars**: the rover's forward vector = R(heading)·(150, 0). Steering composes rotations as a matrix-matrix product, R_new = R(turn·dt)·R(heading), then reads the new heading back out.
+- **Jupiter**: orbital position = center + R(θ)·(radius, 0), vector addition of the rotated radius vector onto the planet center.
+- Even the menu's CSS orbit animations are matrix transforms under the hood.
+
+No game engine. Just math.
+
 ## 🛠️ How to Run Locally
 
 If you want to run the code on your own machine:
