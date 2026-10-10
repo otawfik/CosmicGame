@@ -6,6 +6,11 @@
 
 ![Solar System](https://img.shields.io/badge/Status-Playable-brightgreen) ![Tech](https://img.shields.io/badge/Built%20With-React%20%7C%20Canvas-blue) ![Math](https://img.shields.io/badge/Math-Linear%20Algebra-purple)
 
+<p align="center">
+  <img src="docs/star-map.jpg" width="62%" alt="The star map: eight planets orbiting the sun — click one to start its mission">
+  <img src="docs/gameplay.gif" width="30%" alt="Gameplay: Saturn, Earth, Mars and Neptune missions">
+</p>
+
 ## 🧮 Built on Linear Algebra
 
 The game world is the vector space R². Every position, velocity, and direction is a vector in R², and every rotation is an explicit 2x2 rotation matrix
@@ -24,6 +29,8 @@ Where it shows up in the games:
 - Even the menu's CSS orbit animations are matrix transforms under the hood.
 
 ## 🎮 The Missions
+
+![Mercury, Saturn, Earth and Neptune missions](docs/missions.jpg)
 
 | Planet | Mission | Mechanic |
 | :--- | :--- | :--- |
